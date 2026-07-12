@@ -136,6 +136,6 @@ Two implementations share it:
 - [x] **M2**: MPLASM + MPLMACH compiled to wasm; the socket/process service layer
       replaced with a JS bridge; `run()` executes any program on the real machine
       with live xterm terminals (output + interactive input). See `WASM_PLAN.md`.
+- [x] Complex concurrency examples wired up and verified on the machine: memory
+      cell, message board, raced memory cell, tic-tac-toe (multi-terminal).
 - [ ] Persist/share programs via URL; deep-link the active stage.
-- [ ] More examples (memory cell, message board, tic-tac-toe) — the engine now
-      runs arbitrary programs.

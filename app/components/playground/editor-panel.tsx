@@ -21,6 +21,7 @@ const LEVEL_LABEL: Record<Example["level"], string> = {
   intro: "Intro",
   interactive: "Interactive",
   concurrent: "Concurrent",
+  game: "Game",
 };
 
 interface EditorPanelProps {
