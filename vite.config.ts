@@ -7,4 +7,9 @@ export default defineConfig({
   resolve: {
     tsconfigPaths: true,
   },
+  // The GHC-wasm JSFFI glue is an ES module with top-level await, so the
+  // wasm worker must be bundled as an ES module (not the default IIFE).
+  worker: {
+    format: "es",
+  },
 });

@@ -27,11 +27,16 @@ export function StagesView({ result }: StagesViewProps) {
 
   const dump = result.stages.find((s) => s.stage === active);
   const meta = COMPILE_STAGES.find((s) => s.id === active);
+  // Only show stages the engine actually produced (the wasm frontend emits the
+  // five passes up to lambda-lifting; `assembled` arrives with the machine).
+  const available = COMPILE_STAGES.filter((s) =>
+    result.stages.some((r) => r.stage === s.id)
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-wrap gap-1 border-b border-border/60 p-2">
-        {COMPILE_STAGES.map((s, i) => (
+        {available.map((s, i) => (
           <button
             key={s.id}
             onClick={() => setActive(s.id)}

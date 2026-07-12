@@ -131,7 +131,10 @@ Two implementations share it:
 - [x] Engine abstraction + mock engine + example registry.
 - [x] Playground: editor, `.mpl` highlighting, stages, diagnostics, terminals.
 - [x] Landing page.
-- [ ] `WasmEngine`: compile the Haskell toolchain to wasm (`WASM_PLAN.md`).
+- [x] `WasmEngine` **(M1)**: MPL frontend compiled to wasm; real stages +
+      diagnostics (with editor squiggles). See `WASM_PLAN.md`.
+- [ ] **M2**: port MPLMACH (replace the socket transport with a JS bridge) so
+      programs actually run in the browser; adds the `assembled` stage.
 - [ ] Persist/share programs via URL; deep-link the active stage.
 - [ ] More examples (memory cell, message board, tic-tac-toe) once the real
       engine can run arbitrary programs.

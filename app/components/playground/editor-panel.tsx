@@ -1,6 +1,9 @@
 import { Editor, type Monaco } from "@monaco-editor/react";
 import "~/campl/monaco.client";
+import type { editor } from "monaco-editor";
+import { useEffect, useRef } from "react";
 import { ChevronDown, FlaskConical, Loader2, Play, Square } from "lucide-react";
+import type { Diagnostic } from "~/campl/engine";
 import { MPL_LANGUAGE_ID, registerMplLanguage } from "~/campl/mpl-language";
 import { EXAMPLES, type Example } from "~/campl/examples";
 import { Badge } from "~/components/ui/badge";
@@ -29,6 +32,7 @@ interface EditorPanelProps {
   onStop: () => void;
   running: boolean;
   compiling: boolean;
+  diagnostics: Diagnostic[];
 }
 
 function defineTheme(monaco: Monaco) {
@@ -64,7 +68,42 @@ export function EditorPanel({
   onStop,
   running,
   compiling,
+  diagnostics,
 }: EditorPanelProps) {
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<Monaco | null>(null);
+
+  // Push compiler diagnostics into Monaco as squiggles.
+  useEffect(() => {
+    const ed = editorRef.current;
+    const monaco = monacoRef.current;
+    const model = ed?.getModel();
+    if (!ed || !monaco || !model) return;
+
+    const sev = (s: Diagnostic["severity"]) =>
+      s === "error"
+        ? monaco.MarkerSeverity.Error
+        : s === "warning"
+          ? monaco.MarkerSeverity.Warning
+          : monaco.MarkerSeverity.Info;
+
+    const markers = diagnostics
+      .filter((d) => d.line != null)
+      .map((d) => {
+        const line = d.line!;
+        const col = d.column ?? 1;
+        return {
+          severity: sev(d.severity),
+          message: d.message,
+          startLineNumber: line,
+          startColumn: col,
+          endLineNumber: line,
+          endColumn: model.getLineMaxColumn(Math.min(line, model.getLineCount())),
+        };
+      });
+    monaco.editor.setModelMarkers(model, "campl", markers);
+  }, [diagnostics]);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
@@ -138,6 +177,10 @@ export function EditorPanel({
           beforeMount={(monaco) => {
             registerMplLanguage(monaco);
             defineTheme(monaco);
+          }}
+          onMount={(ed, monaco) => {
+            editorRef.current = ed;
+            monacoRef.current = monaco;
           }}
           options={{
             fontFamily:

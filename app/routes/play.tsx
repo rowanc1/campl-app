@@ -135,6 +135,7 @@ export default function Play() {
             onStop={stop}
             running={running}
             compiling={status.kind === "compiling"}
+            diagnostics={result?.diagnostics ?? []}
           />
         </section>
         <section className="min-h-0">

@@ -86,9 +86,11 @@ data `CompileResult` already models. `camplRun` starts the machine with the
 
 ## Scope / milestones
 
-1. **M1 — Compile-only.** Build the frontend to wasm; wire `camplCompile`. The
-   Stages and Problems tabs become real; Run still mock. (Lowest risk, high value —
-   real type errors and real ASTs.)
+1. **M1 — Compile-only. ✅ DONE.** The MPL frontend is built to `wasm32-wasi`
+   (GHC 9.10) and wired via `camplCompile`. The Stages and Problems tabs are
+   real: genuine parse → rename → typecheck → pattern-compile → lambda-lift dumps
+   and diagnostics with source locations. Run still uses the mock. See
+   [`../wasm/`](../wasm/) and the notes below.
 2. **M2 — Run single-file, single-terminal.** Add `JsBridgeTransport` + `camplRun`
    for `Console`/`StringTerminal`. `helloworld`, `helloworld-terminal`,
    `echo-until-quit` run for real.
@@ -105,6 +107,32 @@ data `CompileResult` already models. `camplRun` starts the machine with the
 | RTS/concurrency differences on wasm | Green threads + `MVar` are supported single-threaded; avoid `-threaded`-only APIs. Validate with `split-console` early. |
 | `.wasm` payload size | Serve compressed, lazy-load on first Run, run in a Worker; acceptable for a demo/education tool. |
 | `get` blocking under cooperative scheduling | Model input as an `MVar`/promise the JS side fills; the green thread parks, the RTS keeps scheduling others. |
+
+## M1 as-built notes
+
+What it actually took to get the frontend compiling to wasm:
+
+- **Toolchain:** `ghc-wasm-meta` (`FLAVOUR=9.10` → GHC 9.10.3 wasm) for
+  `wasm32-wasi-ghc`/`-cabal`; plus native `alex`+`happy` on PATH (the BNFC
+  lexer/parser generators, run as host build tools). Build with `wasm/build.sh`.
+- **cabal.project** pulls in only `../../campl/MPL` (+ Hackage deps). MPLASM/MPLMACH
+  are excluded — MPLASM depends on MPLMACH's `Network.Socket`, so `assembled`
+  waits for M2.
+- **GHC 9.2 → 9.10 source patches** (in `../campl`, all backward-compatible):
+  - add explicit imports no longer re-exported transitively: `Control.Monad`
+    (`void`, `guard`, `replicateM`, `(<=<)`, `(>=>)`), `Control.Monad.Fix`
+    (`MonadFix`), `Data.Monoid` (`All`/`Any`/`First` + getters).
+  - `forall` is now a reserved word → renamed a term variable in `TypeEqns.hs`.
+  - deleted a handful of local `where`-helper **partial type signatures**
+    (`f :: … _ (…)`) in the renamer/typechecker/lambda-lifter: GHC 9.10 no longer
+    infers the `Monad`/`Applicative` constraint for a wildcard whose monad isn't
+    lexically nameable. Removing the signature lets GHC infer the whole type.
+- **Entry point** `wasm/mpl-wasm/src/CamplWasm.hs`: a reactor exporting
+  `camplCompile :: JSString -> IO JSString` (via `GHC.Wasm.Prim`, needs
+  `ghc-experimental`) that runs the staged pipeline and hand-rolls the JSON.
+- **Host:** `WasmEngine` loads the module in a Web Worker with
+  `@bjorn3/browser_wasi_shim`; `wasi.initialize` + `hs_init(0,0)` for the reactor.
+  Vite needs `worker.format: "es"` (the JSFFI glue is an ESM with top-level await).
 
 ## Fallback: `ServerEngine`
 

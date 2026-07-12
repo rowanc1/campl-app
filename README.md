@@ -8,10 +8,13 @@ The app lets you edit CaMPL programs, watch them go through the compiler pipelin
 and run them against a browser-hosted abstract machine — with each channel the
 program opens rendered as a live terminal.
 
-> **Status:** the UI is complete and runs on a **mock engine** (scripted outputs
-> for the bundled examples). The real compiler is a Haskell toolchain being ported
-> to WebAssembly — see [`docs/WASM_PLAN.md`](docs/WASM_PLAN.md). The engine is
-> abstracted behind a single interface so the WASM build is a drop-in swap.
+> **Status:** the **compiler is real** — the MPL frontend is compiled to
+> WebAssembly (GHC wasm backend) and runs in your browser. `compile()` returns
+> genuine parse → rename → typecheck → pattern-compile → lambda-lift dumps and
+> real diagnostics with source locations. Program **execution** still uses the
+> scripted mock runtime; porting the abstract machine (MPLMACH) is the next
+> milestone (M2). See [`docs/WASM_PLAN.md`](docs/WASM_PLAN.md) and
+> [`wasm/`](wasm/).
 
 ## Stack
 
@@ -75,12 +78,22 @@ docs/
   WASM_PLAN.md         plan to compile the Haskell toolchain to WebAssembly
 ```
 
-## Swapping in the real engine
+## The WebAssembly compiler
 
-Everything the UI needs is behind [`getEngine()`](app/campl/provider.ts). Once a
-`WasmEngine` implements `CamplEngine`, change that one function (or branch on
-`import.meta.env.VITE_CAMPL_ENGINE`) and the whole app runs against the real
-compiler — no component changes required.
+The real MPL frontend is compiled to `wasm32-wasi` with GHC's wasm backend and
+loaded in a Web Worker ([`app/campl/wasm/`](app/campl/wasm/)). The engine that
+uses it is [`WasmEngine`](app/campl/wasm-engine.ts); [`getEngine()`](app/campl/provider.ts)
+selects it in the browser and falls back to the mock during SSR.
+
+To rebuild the wasm from the Haskell sources (in `../campl`):
+
+```sh
+cd wasm && ./build.sh    # see the script header for toolchain prerequisites
+```
+
+This produces `wasm/out/mpl-wasm.wasm` + JSFFI glue and stages them into
+`public/wasm/` and `app/campl/wasm/`. Details and the M2+ plan (running programs
+on the abstract machine) are in [`docs/WASM_PLAN.md`](docs/WASM_PLAN.md).
 
 ## Credits
 

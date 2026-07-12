@@ -5,3 +5,8 @@
 # React Router
 /.react-router/
 /build/
+
+# Haskell wasm build artifacts (regenerate with wasm/build.sh).
+# The staged outputs (public/wasm/*.wasm, app/campl/wasm/ghc_wasm_jsffi.js) ARE committed.
+/wasm/dist-newstyle/
+/wasm/out/

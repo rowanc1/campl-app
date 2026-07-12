@@ -11,6 +11,7 @@ import { loader } from "@monaco-editor/react";
 // Import only the editor core (not the TS/JSON/CSS/HTML language features) —
 // we register a custom Monarch grammar, so those megabytes of workers are dead
 // weight. This keeps the bundle small.
+// @ts-expect-error -- deep import has no bundled type declaration; resolved by Vite at runtime
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 

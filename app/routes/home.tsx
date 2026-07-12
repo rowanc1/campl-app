@@ -218,7 +218,7 @@ export default function Home() {
             </a>{" "}
             compiler from the University of Calgary.
           </p>
-          <p>Running on a mock engine · WebAssembly build in progress.</p>
+          <p>Compiler runs in your browser via WebAssembly.</p>
         </div>
       </footer>
     </div>
