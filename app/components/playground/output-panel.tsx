@@ -23,6 +23,8 @@ interface OutputPanelProps {
   bus: RunBus;
   status: RunStatus;
   result: CompileResult | null;
+  /** Bumped per run so terminals remount (service ids repeat across runs). */
+  runId: number;
 }
 
 function statusText(s: RunStatus): { label: string; className: string } {
@@ -51,6 +53,7 @@ export function OutputPanel({
   bus,
   status,
   result,
+  runId,
 }: OutputPanelProps) {
   const problemCount = result?.diagnostics.length ?? 0;
   const st = statusText(status);
@@ -105,7 +108,10 @@ export function OutputPanel({
             {services.map((svc) => {
               const closed = closedIds.has(svc.id);
               return (
-                <div key={svc.id} className="flex min-h-0 flex-1 flex-col">
+                <div
+                  key={`${runId}-${svc.id}`}
+                  className="flex min-h-0 flex-1 flex-col"
+                >
                   <div className="flex items-center gap-2 bg-muted/40 px-3 py-1.5">
                     <TerminalIcon className="size-3.5 text-primary" />
                     <span className="text-xs font-medium">{svc.title}</span>

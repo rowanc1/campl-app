@@ -8,13 +8,14 @@ The app lets you edit CaMPL programs, watch them go through the compiler pipelin
 and run them against a browser-hosted abstract machine — with each channel the
 program opens rendered as a live terminal.
 
-> **Status:** the **compiler is real** — the MPL frontend is compiled to
-> WebAssembly (GHC wasm backend) and runs in your browser. `compile()` returns
-> genuine parse → rename → typecheck → pattern-compile → lambda-lift dumps and
-> real diagnostics with source locations. Program **execution** still uses the
-> scripted mock runtime; porting the abstract machine (MPLMACH) is the next
-> milestone (M2). See [`docs/WASM_PLAN.md`](docs/WASM_PLAN.md) and
-> [`wasm/`](wasm/).
+> **Status:** the **whole toolchain is real and runs in your browser** — the MPL
+> frontend, the MPLASM assembler, and the MPLMACH abstract machine are all
+> compiled to WebAssembly (GHC wasm backend). `compile()` returns genuine
+> parse → typecheck → lambda-lift dumps and diagnostics with source locations;
+> `run()` assembles and **executes** the program on the machine, streaming each
+> terminal service the program opens to a live xterm pane (output and interactive
+> input). Edit any program and run it. See [`docs/WASM_PLAN.md`](docs/WASM_PLAN.md)
+> and [`wasm/`](wasm/).
 
 ## Stack
 

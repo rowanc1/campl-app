@@ -12,8 +12,11 @@ executable mpl-wasm
       base
     , ghc-experimental
     , MPL
+    , MPLASM
+    , MPLMACH
   ghc-options:
     -no-hs-main
     -optl-mexec-model=reactor
     "-optl-Wl,--export=camplCompile"
+    "-optl-Wl,--export=camplRun"
     "-optl-Wl,--export=hs_init"

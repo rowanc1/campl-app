@@ -42,6 +42,8 @@ export default function Play() {
 
   const [services, setServices] = useState<ServiceHandle[]>([]);
   const [closedIds, setClosedIds] = useState<Set<string>>(new Set());
+  // Bumped each run so terminals remount (service ids repeat across runs).
+  const [runId, setRunId] = useState(0);
 
   const busRef = useRef<RunBus>(new RunBus());
   const runHandleRef = useRef<RunHandle | null>(null);
@@ -94,6 +96,7 @@ export default function Play() {
 
     const bus = busRef.current;
     bus.reset();
+    setRunId((n) => n + 1);
     setServices([]);
     setClosedIds(new Set());
     setTab("run");
@@ -147,6 +150,7 @@ export default function Play() {
             bus={busRef.current}
             status={status}
             result={result}
+            runId={runId}
           />
         </section>
       </main>

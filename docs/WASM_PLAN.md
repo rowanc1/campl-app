@@ -91,11 +91,13 @@ data `CompileResult` already models. `camplRun` starts the machine with the
    real: genuine parse → rename → typecheck → pattern-compile → lambda-lift dumps
    and diagnostics with source locations. Run still uses the mock. See
    [`../wasm/`](../wasm/) and the notes below.
-2. **M2 — Run single-file, single-terminal.** Add `JsBridgeTransport` + `camplRun`
-   for `Console`/`StringTerminal`. `helloworld`, `helloworld-terminal`,
-   `echo-until-quit` run for real.
-3. **M3 — Concurrency.** Exercise `split`/`fork`/`plug`/races (`split-console` and
-   beyond); one xterm per dynamically-opened service.
+2. **M2 — Run on the machine. ✅ DONE.** MPLASM + MPLMACH are built to wasm; the
+   socket/process service layer is replaced with a JS bridge; `camplRun`
+   assembles and runs the program. `helloworld`, `helloworld-terminal`,
+   `echo-until-quit`, `split-console` all run for real — output *and* interactive
+   input, one xterm pane per service. See the M2 as-built notes below.
+3. **M3 — Robustness.** Type-ahead input buffering, richer service metadata
+   (Console vs StringTerminal titles), timeouts/races stress-tested at scale.
 4. **M4 — Modules & stdlib.** Bundle `mpl-lib` into a virtual FS so `import`/module
    resolution works, lifting the single-file limitation.
 
@@ -133,6 +135,38 @@ What it actually took to get the frontend compiling to wasm:
 - **Host:** `WasmEngine` loads the module in a Web Worker with
   `@bjorn3/browser_wasi_shim`; `wasi.initialize` + `hs_init(0,0)` for the reactor.
   Vite needs `worker.format: "es"` (the JSFFI glue is an ESM with top-level await).
+
+## M2 as-built notes
+
+Getting the abstract machine into the browser:
+
+- **MPLMACH depends on `network` (sockets) and `process` (it spawns Alacritty).**
+  Neither builds for wasm. In `MPLMACH.cabal`, `if arch(wasm32)` drops both and
+  adds `ghc-experimental` + `-DWASM`; the socket/process code is `#ifdef`-guarded
+  out so the native build is untouched.
+- **The service seam.** The machine already had an in-process, stdio-based service
+  handler (`serviceThread`) beside the socket one — proof the socket path was just
+  *one* transport. The wasm build adds `wasmServiceThread`, a mirror that does I/O
+  through four JSFFI imports — `__camplSvOpen/Put/Get/Close` — provided by the host
+  worker. `sOpenTerm` (and, on wasm, `SHOpenThread` — the "main console") open a JS
+  xterm pane and fork this handler instead of spawning a process. The socket
+  server (`serviceManager`/`serviceClient`/`recvPipe`) is compiled out on wasm.
+- **Blocking `get`.** `__camplSvGet` is a `foreign import javascript safe` returning
+  a Promise; the green thread parks until the worker resolves it with a typed line.
+  The RTS scheduler (driven by the JSFFI `scheduleWork`/`setImmediate` glue) wakes
+  it — verified end-to-end (`echo-until-quit` loops on scripted input and exits).
+- **Entry point** `camplRun :: JSString -> IO JSString`: compile → `mplAssembleProg`
+  → `mplAsmProgToInitMachState` → `initMplMachEnv` → the wasm `mplMachRunnner`
+  (no socket server; waits for services to drain, then returns a JSON status).
+- **Host.** The worker sets the `__camplSv*` globals, calls `camplRun`, forwards
+  `svOpen/svPut/svClose` to the main thread and resolves `svGet` from `input`
+  messages. `WasmEngine.run` maps those to `RunCallbacks`/xterm; `stop()` terminates
+  the worker (the only reliable way to kill a runaway machine). The `RunBus` buffers
+  output emitted before xterm mounts (the machine is faster than the terminal), and
+  terminals are keyed by a per-run nonce so re-runs get fresh panes.
+
+Same GHC 9.10 patch pattern as M1 (a few missing `Control.Monad`/`Data.Monoid`
+imports across MPLMACH/MPLASM), on branch `wasm-ghc910-port` in `../campl`.
 
 ## Fallback: `ServerEngine`
 

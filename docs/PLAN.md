@@ -133,8 +133,9 @@ Two implementations share it:
 - [x] Landing page.
 - [x] `WasmEngine` **(M1)**: MPL frontend compiled to wasm; real stages +
       diagnostics (with editor squiggles). See `WASM_PLAN.md`.
-- [ ] **M2**: port MPLMACH (replace the socket transport with a JS bridge) so
-      programs actually run in the browser; adds the `assembled` stage.
+- [x] **M2**: MPLASM + MPLMACH compiled to wasm; the socket/process service layer
+      replaced with a JS bridge; `run()` executes any program on the real machine
+      with live xterm terminals (output + interactive input). See `WASM_PLAN.md`.
 - [ ] Persist/share programs via URL; deep-link the active stage.
-- [ ] More examples (memory cell, message board, tic-tac-toe) once the real
-      engine can run arbitrary programs.
+- [ ] More examples (memory cell, message board, tic-tac-toe) — the engine now
+      runs arbitrary programs.

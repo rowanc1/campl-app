@@ -5,24 +5,8 @@ import {
   type Diagnostic,
   type RunCallbacks,
   type RunHandle,
+  type ServiceHandle,
 } from "./engine";
-import { MockEngine } from "./mock-engine";
-
-interface WorkerResult {
-  type: "result";
-  id: number;
-  json: string;
-}
-interface WorkerError {
-  type: "error";
-  id: number;
-  message: string;
-}
-interface WorkerReady {
-  type: "ready" | "fatal";
-  message?: string;
-}
-type WorkerMsg = WorkerResult | WorkerError | WorkerReady;
 
 interface RawStage {
   stage: string;
@@ -40,7 +24,13 @@ interface RawResult {
   diagnostics: RawDiag[];
 }
 
-/** Pull "line N and column M" out of the pretty-printed error text, if present. */
+interface ActiveRun {
+  id: number;
+  cb: RunCallbacks;
+  serviceCount: number;
+  finished: boolean;
+}
+
 function parseDiagnostic(d: RawDiag): Diagnostic {
   const m = /at line (\d+) and column (\d+)/.exec(d.message);
   return {
@@ -53,60 +43,108 @@ function parseDiagnostic(d: RawDiag): Diagnostic {
 }
 
 /**
- * Engine backed by the real MPL frontend compiled to WebAssembly.
- *
- * `compile()` runs parse → rename → typecheck → pattern-compile → lambda-lift in
- * the wasm module (via a Web Worker) and returns genuine stage dumps and
- * diagnostics. `run()` still delegates to the mock runtime — executing programs
- * needs the abstract machine (MPLMACH), which is the next milestone (M2).
+ * Engine backed by the real CaMPL toolchain compiled to WebAssembly:
+ *   - compile() runs the MPL frontend (genuine stage dumps + diagnostics)
+ *   - run() assembles and executes the program on the abstract machine, with
+ *     each terminal service the program opens streamed to an xterm pane.
  */
 export class WasmEngine implements CamplEngine {
   readonly name = "WebAssembly";
   readonly ready: Promise<void>;
+  private resolveReady!: () => void;
+  private rejectReady!: (e: Error) => void;
 
-  private worker: Worker;
+  private worker: Worker | null = null;
   private seq = 0;
   private pending = new Map<
     number,
     { resolve: (json: string) => void; reject: (err: Error) => void }
   >();
-  private mock = new MockEngine();
+  private activeRun: ActiveRun | null = null;
 
   constructor() {
-    this.worker = new Worker(new URL("./wasm/mpl.worker.ts", import.meta.url), {
-      type: "module",
-    });
-
     this.ready = new Promise<void>((resolve, reject) => {
-      const onReady = (ev: MessageEvent<WorkerMsg>) => {
-        if (ev.data.type === "ready") {
-          this.worker.removeEventListener("message", onReady);
-          resolve();
-        } else if (ev.data.type === "fatal") {
-          this.worker.removeEventListener("message", onReady);
-          reject(new Error(ev.data.message ?? "wasm failed to load"));
-        }
-      };
-      this.worker.addEventListener("message", onReady);
+      this.resolveReady = resolve;
+      this.rejectReady = reject;
     });
+    this.getWorker();
+  }
 
-    this.worker.addEventListener("message", (ev: MessageEvent<WorkerMsg>) => {
-      const msg = ev.data;
-      if (msg.type === "result") {
+  private getWorker(): Worker {
+    if (!this.worker) {
+      this.worker = new Worker(new URL("./wasm/mpl.worker.ts", import.meta.url), {
+        type: "module",
+      });
+      this.worker.addEventListener("message", (ev) => this.handle(ev.data));
+    }
+    return this.worker;
+  }
+
+  private handle(msg: any) {
+    switch (msg?.type) {
+      case "ready":
+        this.resolveReady();
+        break;
+      case "fatal":
+        this.rejectReady(new Error(msg.message ?? "wasm failed to load"));
+        break;
+      case "result":
         this.pending.get(msg.id)?.resolve(msg.json);
         this.pending.delete(msg.id);
-      } else if (msg.type === "error") {
+        break;
+      case "error":
         this.pending.get(msg.id)?.reject(new Error(msg.message));
         this.pending.delete(msg.id);
+        break;
+      case "svOpen": {
+        const run = this.activeRun;
+        if (!run) break;
+        run.serviceCount += 1;
+        const service: ServiceHandle = {
+          id: String(msg.id),
+          kind: "stringTerminal",
+          title: run.serviceCount === 1 ? "Console" : `Terminal ${run.serviceCount}`,
+        };
+        run.cb.onServiceOpen(service);
+        break;
       }
-    });
+      case "svPut":
+        this.activeRun?.cb.onOutput(String(msg.id), msg.text);
+        break;
+      case "svClose":
+        this.activeRun?.cb.onServiceClose(String(msg.id));
+        break;
+      case "svGetWaiting":
+        // The machine is blocked on input for this service; the terminal is
+        // already accepting keystrokes, so nothing to do here.
+        break;
+      case "runDone": {
+        const run = this.activeRun;
+        if (!run || run.finished) break;
+        run.finished = true;
+        let ok = true;
+        let error = "";
+        try {
+          const parsed = JSON.parse(msg.json);
+          ok = parsed.ok;
+          error = parsed.error ?? "";
+        } catch {
+          /* ignore */
+        }
+        if (!ok && error) run.cb.onError(error);
+        run.cb.onExit(ok ? 0 : 1);
+        this.activeRun = null;
+        break;
+      }
+    }
   }
 
   private request(source: string): Promise<string> {
+    const worker = this.getWorker();
     const id = ++this.seq;
     return new Promise<string>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      this.worker.postMessage({ type: "compile", id, source });
+      worker.postMessage({ type: "compile", id, source });
     });
   }
 
@@ -126,8 +164,41 @@ export class WasmEngine implements CamplEngine {
     };
   }
 
-  run(source: string, cb: RunCallbacks): Promise<RunHandle> {
-    // M1: execution still uses the scripted mock runtime.
-    return this.mock.run(source, cb);
+  async run(source: string, cb: RunCallbacks): Promise<RunHandle> {
+    await this.ready;
+    const worker = this.getWorker();
+    const id = ++this.seq;
+    this.activeRun = { id, cb, serviceCount: 0, finished: false };
+    worker.postMessage({ type: "run", id, source });
+
+    return {
+      sendInput: (serviceId, text) =>
+        worker.postMessage({ type: "input", id: Number(serviceId), text }),
+      stop: () => this.stop(),
+    };
+  }
+
+  /**
+   * Stop a run by terminating the worker (the only reliable way to interrupt a
+   * running machine — e.g. an infinite loop). The next compile/run lazily spins
+   * up a fresh instance.
+   */
+  private stop() {
+    const run = this.activeRun;
+    if (run && !run.finished) {
+      run.finished = true;
+      run.cb.onError("Run stopped.");
+      run.cb.onExit(130);
+    }
+    this.activeRun = null;
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+    }
+    // Reject any in-flight compiles; they'll be retried against a new worker.
+    for (const { reject } of this.pending.values()) {
+      reject(new Error("worker restarted"));
+    }
+    this.pending.clear();
   }
 }

@@ -1,10 +1,15 @@
 /// <reference lib="webworker" />
 /**
- * Web Worker hosting the real CaMPL frontend compiled to WebAssembly.
+ * Web Worker hosting the real CaMPL compiler AND abstract machine, compiled to
+ * WebAssembly (GHC wasm backend).
  *
- * The wasm module (`mpl-wasm.wasm`) is the GHC-wasm build of the MPL package;
- * it exports `camplCompile :: JSString -> IO JSString` via GHC's JavaScript FFI.
- * We run it here (off the main thread) behind a browser WASI shim.
+ * Exports used:
+ *   camplCompile :: JSString -> IO JSString   (parse → typecheck → lambda-lift dumps)
+ *   camplRun     :: JSString -> IO JSString   (assemble → run on the machine)
+ *
+ * While a program runs, the machine's terminal services call back into JS
+ * through the `__camplSv*` bridge below; we forward those to the main thread as
+ * svOpen/svPut/svClose, and deliver user input by resolving svGet promises.
  */
 import {
   WASI,
@@ -12,20 +17,39 @@ import {
   ConsoleStdout,
   File as WasiFile,
 } from "@bjorn3/browser_wasi_shim";
-// The JSFFI glue emitted by GHC's post-linker (see wasm/out).
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore -- generated JS module without types
 import ghcffi from "./ghc_wasm_jsffi.js";
-
-type CompileMsg = { type: "compile"; id: number; source: string };
 
 interface WasmExports {
   memory: WebAssembly.Memory;
   _initialize?: () => void;
   hs_init: (argc: number, argv: number) => void;
   camplCompile: (source: string) => Promise<string> | string;
+  camplRun: (source: string) => Promise<string> | string;
   [k: string]: unknown;
 }
+
+// --- service bridge state ---
+// Pending svGet resolvers, keyed by service id (the machine blocks until we
+// resolve). One run at a time, so a flat map is fine.
+const pendingGets = new Map<number, (line: string) => void>();
+
+const g = globalThis as unknown as Record<string, unknown>;
+
+g.__camplSvOpen = (id: number, kind: number) =>
+  self.postMessage({ type: "svOpen", id, kind });
+g.__camplSvPut = (id: number, text: string) =>
+  self.postMessage({ type: "svPut", id, text });
+g.__camplSvClose = (id: number) => {
+  pendingGets.delete(id);
+  self.postMessage({ type: "svClose", id });
+};
+g.__camplSvGet = (id: number): Promise<string> =>
+  new Promise<string>((resolve) => {
+    pendingGets.set(id, resolve);
+    self.postMessage({ type: "svGetWaiting", id });
+  });
 
 let exportsReady: Promise<WasmExports> | null = null;
 
@@ -46,7 +70,6 @@ async function init(): Promise<WasmExports> {
   );
 
   const mod = await WebAssembly.compileStreaming(fetch(wasmUrl()));
-
   const __exports: Partial<WasmExports> = {};
   const jsffi = ghcffi(__exports);
   const instance = await WebAssembly.instantiate(mod, {
@@ -70,23 +93,54 @@ function ensureReady(): Promise<WasmExports> {
   return exportsReady;
 }
 
-self.onmessage = async (ev: MessageEvent<CompileMsg>) => {
+self.onmessage = async (ev: MessageEvent) => {
   const msg = ev.data;
-  if (msg.type !== "compile") return;
-  try {
-    const exps = await ensureReady();
-    const json = await exps.camplCompile(msg.source);
-    self.postMessage({ type: "result", id: msg.id, json });
-  } catch (err) {
-    self.postMessage({
-      type: "error",
-      id: msg.id,
-      message: err instanceof Error ? err.message : String(err),
-    });
+
+  if (msg.type === "input") {
+    const resolve = pendingGets.get(msg.id);
+    if (resolve) {
+      pendingGets.delete(msg.id);
+      resolve(msg.text);
+    }
+    return;
+  }
+
+  if (msg.type === "compile") {
+    try {
+      const exps = await ensureReady();
+      const json = await exps.camplCompile(msg.source);
+      self.postMessage({ type: "result", id: msg.id, json });
+    } catch (err) {
+      self.postMessage({
+        type: "error",
+        id: msg.id,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return;
+  }
+
+  if (msg.type === "run") {
+    try {
+      const exps = await ensureReady();
+      const json = await exps.camplRun(msg.source);
+      self.postMessage({ type: "runDone", id: msg.id, json });
+    } catch (err) {
+      self.postMessage({
+        type: "runDone",
+        id: msg.id,
+        json: JSON.stringify({
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        }),
+      });
+    } finally {
+      pendingGets.clear();
+    }
+    return;
   }
 };
 
-// Kick off instantiation eagerly so the first compile is fast.
 ensureReady().then(
   () => self.postMessage({ type: "ready" }),
   (err) =>

@@ -1,17 +1,25 @@
--- Builds the CaMPL frontend (MPL) to WebAssembly with the GHC wasm backend.
+-- Builds the CaMPL toolchain to WebAssembly with the GHC wasm backend:
+-- MPL (frontend) + MPLASM (assembler) + MPLMACH (abstract machine).
 -- Use the ghc-wasm-meta toolchain: `source ~/.ghc-wasm/env` then
--- `wasm32-wasi-cabal build` (see build.sh).
+-- `wasm32-wasi-cabal build mpl-wasm` (see build.sh).
 --
--- M1 scope: parse → rename → typecheck → pattern-compile → lambda-lift.
--- These all live in MPL and pull in only Hackage deps. The `assembled` stage
--- lives in MPLASM, which depends on MPLMACH (sockets) — deferred to M2.
+-- MPLMACH's socket/process service layer is replaced with a JS bridge under
+-- `if arch(wasm32)` (see MPLMACH.cabal + MplMach.MplMachStep #ifdef WASM).
 
 packages:
   ./mpl-wasm
   ../../campl/MPL
+  ../../campl/MPLASM
+  ../../campl/MPLMACH
 
 -- The research codebase emits many warnings; don't let -Werror-ish defaults bite.
 package MPL
+  ghc-options: -w
+
+package MPLASM
+  ghc-options: -w
+
+package MPLMACH
   ghc-options: -w
 
 package mpl-wasm
