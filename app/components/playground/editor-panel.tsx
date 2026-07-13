@@ -91,15 +91,19 @@ export function EditorPanel({
     const markers = diagnostics
       .filter((d) => d.line != null)
       .map((d) => {
-        const line = d.line!;
+        const line = Math.min(d.line!, model.getLineCount());
         const col = d.column ?? 1;
+        // Underline the exact token at the diagnostic position when there is
+        // one; otherwise squiggle to the end of the line.
+        const word = model.getWordAtPosition({ lineNumber: line, column: col });
         return {
           severity: sev(d.severity),
           message: d.message,
+          source: d.stage ? `campl · ${d.stage}` : "campl",
           startLineNumber: line,
-          startColumn: col,
+          startColumn: word ? word.startColumn : col,
           endLineNumber: line,
-          endColumn: model.getLineMaxColumn(Math.min(line, model.getLineCount())),
+          endColumn: word ? word.endColumn : model.getLineMaxColumn(line),
         };
       });
     monaco.editor.setModelMarkers(model, "campl", markers);
@@ -182,6 +186,9 @@ export function EditorPanel({
           onMount={(ed, monaco) => {
             editorRef.current = ed;
             monacoRef.current = monaco;
+            if (import.meta.env.DEV) {
+              (window as unknown as { monaco?: Monaco }).monaco = monaco;
+            }
           }}
           options={{
             fontFamily:
@@ -194,6 +201,8 @@ export function EditorPanel({
             tabSize: 4,
             renderLineHighlight: "line",
             fixedOverflowWidgets: true,
+            // Diagnostic (marker) tooltips on hover.
+            hover: { enabled: true, delay: 150, sticky: true },
           }}
           loading={
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">

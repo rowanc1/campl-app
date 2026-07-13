@@ -33,10 +33,16 @@ interface ActiveRun {
 
 function parseDiagnostic(d: RawDiag): Diagnostic {
   const m = /at line (\d+) and column (\d+)/.exec(d.message);
+  // The location is captured in line/column below, so drop it from the prose
+  // (and the leading pretty-printer bullet) to keep the hover tidy.
+  const message = d.message
+    .replace(/\s*at line \d+ and column \d+/g, "")
+    .replace(/^[\s•]+/, "")
+    .trim();
   return {
     severity: d.severity,
     stage: d.stage as Diagnostic["stage"],
-    message: d.message.replace(/^[\s•]+/, "").trim(),
+    message,
     line: m ? Number(m[1]) : undefined,
     column: m ? Number(m[2]) : undefined,
   };
